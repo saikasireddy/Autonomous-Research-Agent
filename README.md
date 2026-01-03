@@ -3,16 +3,61 @@
 A production-grade autonomous multi-agent system for analyzing research papers from arXiv using **LangGraph**, **FastAPI**, and **Ollama (Llama 3)**.
 
 ## ✨ Features
+🆓 100% Local & Free – Runs entirely on Ollama (Llama 3.1). No API keys or subscriptions required.
 
-- **🆓 100% Local & Free** - Runs entirely on Ollama (no API keys required)
-- **🤖 Multi-Agent Architecture** - Researcher → Analyzer → Comparator → Synthesizer
-- **🔬 Scientific Integrity** - Negative constraints prevent fabricated contradictions
-- **💾 Persistent Storage** - SQLite database with job history and caching
-- **📊 Metric Comparison** - Automatically extracts and compares quantitative metrics
-- **📚 Job History** - View, reload, and manage past research jobs
-- **🌐 REST API** - FastAPI backend with async job processing
-- **🎨 Web UI** - Streamlit interface for easy interaction
-- **📖 Citation Tracking** - Every finding includes proper citations
+🤖 Multi-Agent Architecture – Orchestrates a specialized workforce:
+
+Researcher: Fetches papers via arXiv and indexes them.
+
+Analyzer: Performs deep-text pattern and contradiction detection.
+
+Comparator: Extracts and normalizes quantitative metrics into tables.
+
+Synthesizer: Generates professional-grade Markdown and JSON reports.
+
+📊 Quantitative Metric Comparison – (NEW) Automatically identifies and compares experimental results (e.g., Energy Density, Resolution, Capacity) across multiple papers in a structured matrix.
+
+💾 Persistent Job History – (NEW) SQLite database tracks every research task. View, reload, and manage past reports through the UI.
+
+🌐 Decoupled REST API – FastAPI backend with asynchronous BackgroundTasks ensures the UI never freezes during heavy 10-paper runs.
+
+🔬 Scientific Integrity – Hardened "Negative Constraints" prevent the LLM from fabricating contradictions or data points when none exist.
+
+## Code snippet
+graph TD
+    A[Streamlit UI] <-->|HTTP / JSON| B[FastAPI Backend]
+    B -->|Persist| C[(SQLite jobs.db)]
+    B -->|Trigger| D[LangGraph Workflow]
+    
+    subgraph Agents
+    D --> E[Researcher]
+    E --> F[Analyzer]
+    F --> G[Comparator]
+    G --> H[Synthesizer]
+    end
+    
+    H -->|Save| I[outputs/job_id/]
+    H -->|Return| B
+
+
+## 📊 Enterprise Use Cases & Future Roadmap
+This architecture is designed to scale from a single-user tool into a corporate R&D asset.
+
+For MAANG & Enterprise Scale
+Large organizations can implement this system to solve high-stakes data silos:
+
+Competitive Intelligence (MAANG): Automate the monitoring of competitor patent filings and academic releases to generate weekly "Threat Comparison" reports.
+
+Accelerated R&D (Pharma/Auto): Ingest 10,000+ proprietary internal documents alongside public papers to identify "unexplored white space" in materials or drug discovery.
+
+Regulatory Compliance: Deploy agents to cross-reference global policy changes (like the EU AI Act) against internal codebases or business practices.
+
+Future Roadmap
+[ ] Multi-Modal Analysis: Reasoning over images, charts, and diagrams within PDFs using Llama 3.2-Vision.
+
+[ ] Human-in-the-Loop: Pause the graph to let a human expert approve the "Research Plan" before the agent starts downloading papers.
+
+[ ] Distributed Vector Mesh: Move from local FAISS to a distributed vector database (Milvus/Qdrant) for million-document scalability.
 
 ## 🏗️ Architecture
 
