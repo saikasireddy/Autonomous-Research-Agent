@@ -1,0 +1,33 @@
+# LangGraph & LangChain Core (NO OpenAI dependencies)
+langgraph==0.2.45
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-community==0.3.5
+langchain-ollama==0.2.0
+
+# Vector Store & Embeddings
+faiss-cpu==1.9.0.post1
+sentence-transformers==3.3.1
+
+# arXiv & PDF Processing
+arxiv==2.1.3
+pypdf==5.1.0
+requests==2.32.3
+
+# Data Handling & Utilities
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+
+# Logging & Error Handling
+loguru==0.7.2
+
+# JSON & Data Processing
+orjson==3.10.12
+
+# Web UI
+streamlit==1.40.1
+
+# FastAPI Backend (NEW)
+fastapi==0.128.0
+uvicorn[standard]==0.40.0

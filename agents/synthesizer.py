@@ -1,0 +1,395 @@
+"""
+Synthesizer Agent - Generates final reports and insights.
+
+Responsibilities:
+- Generate markdown report with sections
+- Create structured JSON insights
+- Handle empty contradictions gracefully
+- Maintain scientific integrity
+"""
+
+from typing import Dict
+from loguru import logger
+from datetime import datetime
+import json
+
+from graph.state import ResearchState
+from langchain_ollama import ChatOllama
+from config import settings
+
+
+def synthesizer_node(state: ResearchState) -> Dict:
+    """
+    Synthesizer agent node for LangGraph.
+
+    Args:
+        state: Current research state
+
+    Returns:
+        State updates (final_report, insights_json)
+    """
+    job_id = state["job_id"]
+    logger.info(f"\n═══ Synthesizer Agent Starting ═══")
+    logger.info(f"Job ID: {job_id}")
+
+    if not state.get("analysis"):
+        logger.error("❌ No analysis available - cannot synthesize")
+        return {
+            "final_report": "# Error\n\nNo analysis data available.",
+            "insights_json": {},
+            "processing_stage": "complete"
+        }
+
+    analysis = state["analysis"]
+    documents = state["documents"]
+    topic = state["topic"]
+
+    # CRITICAL GUARDRAIL: Prevent hallucination when 0 papers analyzed
+    successful_papers = [d for d in documents if d.get("extraction_status") == "success"]
+
+    if len(successful_papers) == 0:
+        logger.error("❌ 0 papers analyzed - refusing to generate hallucinated report")
+
+        error_report = f"""# Research Report: {topic}
+
+**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Papers Analyzed:** 0
+**Status:** ❌ Failed
+
+---
+
+## Error: No Papers Found
+
+The research pipeline could not find or process any papers for this topic.
+
+**Possible reasons:**
+1. **arXiv returned no results** - The search query may be too specific or use unusual phrasing
+2. **PDF download failed** - arXiv may be rate-limiting or papers are unavailable
+3. **All extractions failed** - PDFs may be image-based or corrupted
+
+**Suggestions:**
+- Try a broader search query (e.g., "solid-state batteries" instead of "Recent breakthroughs in solid-state batteries 2024")
+- Remove year constraints from the query
+- Increase the number of papers to search
+- Check the backend logs for specific error messages
+
+---
+
+**This is NOT a generated report** - refusing to hallucinate findings from LLM training data.
+"""
+
+        return {
+            "final_report": error_report,
+            "insights_json": {
+                "topic": topic,
+                "timestamp": datetime.now().isoformat(),
+                "papers_analyzed": 0,
+                "papers_failed": len(documents),
+                "error": "No papers successfully processed",
+                "key_findings": [],
+                "contradictions": [],
+                "complementary_findings": [],
+                "trends": [],
+                "consensus_points": [],
+                "research_gaps": []
+            },
+            "processing_stage": "complete"
+        }
+
+    # Initialize LLM (only if we have papers to analyze)
+    llm = ChatOllama(
+        model=settings.OLLAMA_MODEL,
+        temperature=0.5,  # Lower temperature for more factual output
+        base_url=settings.OLLAMA_BASE_URL
+    )
+
+    # Generate report sections
+    logger.info(f"📝 Generating executive summary...")
+    summary = _generate_summary(llm, topic, documents, analysis)
+
+    logger.info(f"📊 Formatting key findings...")
+    findings_section = _format_key_findings(analysis["key_findings"])
+
+    logger.info(f"⚖️  Formatting contradictions...")
+    contradictions_section = _format_contradictions(analysis["contradictions"])
+
+    logger.info(f"🔗 Formatting complementary findings...")
+    complementary_section = _format_complementary(analysis["complementary_findings"])
+
+    logger.info(f"📈 Formatting trends...")
+    trends_section = _format_trends(analysis["trends"])
+
+    logger.info(f"🔬 Formatting research gaps...")
+    gaps_section = _format_gaps(analysis["gaps"])
+
+    logger.info(f"📚 Formatting references...")
+    references_section = _format_references(documents)
+
+    # NEW: Format comparison table if available
+    comparison_section = ""
+    if state.get("comparison"):
+        logger.info(f"📊 Formatting comparison table...")
+        comparison_section = _format_comparison(state["comparison"])
+
+    # Assemble markdown report
+    report = f"""# Research Report: {topic}
+
+**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Papers Analyzed:** {len([d for d in documents if d['extraction_status'] == 'success'])}
+
+---
+
+## Executive Summary
+
+{summary}
+
+---
+
+{comparison_section}
+
+## Key Findings
+
+{findings_section}
+
+---
+
+## Contradictions & Debates
+
+{contradictions_section}
+
+---
+
+## Complementary Findings
+
+{complementary_section}
+
+---
+
+## Emerging Trends
+
+{trends_section}
+
+---
+
+## Research Gaps
+
+{gaps_section}
+
+---
+
+## References
+
+{references_section}
+
+---
+
+*Generated by Autonomous Research Agent*
+"""
+
+    # Generate JSON insights
+    insights_json = {
+        "topic": topic,
+        "timestamp": datetime.now().isoformat(),
+        "papers_analyzed": len([d for d in documents if d["extraction_status"] == "success"]),
+        "papers_failed": len([d for d in documents if d["extraction_status"] != "success"]),
+        "key_findings": [
+            {
+                "finding": f["finding"],
+                "citation": f["citation"]
+            }
+            for f in analysis["key_findings"]
+        ],
+        "contradictions": analysis["contradictions"],
+        "complementary_findings": analysis["complementary_findings"],
+        "trends": analysis["trends"],
+        "consensus_points": analysis.get("consensus_points", []),
+        "research_gaps": analysis["gaps"],
+        "comparison": state.get("comparison", {})  # NEW: Include comparison metrics
+    }
+
+    # Save files to job-specific output directory
+    output_dir = settings.get_job_output_dir(job_id)
+    report_path = output_dir / "report.md"
+    insights_path = output_dir / "insights.json"
+
+    logger.info(f"\n💾 Saving outputs to {output_dir}")
+
+    try:
+        # Save markdown report
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write(report)
+        logger.info(f"  ✓ Saved report: {report_path}")
+
+        # Save JSON insights
+        with open(insights_path, 'w', encoding='utf-8') as f:
+            json.dump(insights_json, f, indent=2, ensure_ascii=False)
+        logger.info(f"  ✓ Saved insights: {insights_path}")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to save outputs: {e}")
+
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Synthesizer Agent Summary:")
+    logger.info(f"  Report length: {len(report)} characters")
+    logger.info(f"  JSON fields: {len(insights_json.keys())}")
+    logger.info(f"  Output directory: {output_dir}")
+    logger.info(f"{'='*60}\n")
+
+    return {
+        "final_report": report,
+        "insights_json": insights_json,
+        "processing_stage": "complete"
+    }
+
+
+def _generate_summary(llm: ChatOllama, topic: str, documents: list, analysis: dict) -> str:
+    """Generate executive summary using LLM."""
+    successful_docs = [d for d in documents if d["extraction_status"] == "success"]
+
+    paper_titles = "\n".join([f"- {d['title']}" for d in successful_docs[:5]])
+
+    prompt = f"""Write a 2-3 paragraph executive summary for a research report on: {topic}
+
+Based on {len(successful_docs)} papers including:
+{paper_titles}
+
+Key findings include:
+{chr(10).join([f'- {f["finding"][:100]}' for f in analysis['key_findings'][:3]])}
+
+Write a concise, professional summary:"""
+
+    try:
+        response = llm.invoke(prompt)
+        return response.content.strip()
+    except Exception as e:
+        logger.warning(f"Failed to generate summary: {e}")
+        return f"This report analyzes {len(successful_docs)} research papers on {topic}."
+
+
+def _format_key_findings(findings: list) -> str:
+    """Format key findings with citations."""
+    if not findings:
+        return "*No key findings extracted.*"
+
+    sections = []
+    for i, finding in enumerate(findings, 1):
+        sections.append(f"**{i}. {finding['finding']}** {finding['citation']}")
+
+    return "\n\n".join(sections)
+
+
+def _format_contradictions(contradictions: list) -> str:
+    """Format contradictions section (with graceful handling of empty list)."""
+    if not contradictions:
+        return """**No direct contradictions found** among the analyzed papers.
+
+This suggests general alignment in the research findings, though papers may address different aspects of the topic (see Complementary Findings below)."""
+
+    sections = []
+    for i, contra in enumerate(contradictions, 1):
+        sections.append(f"""**{i}. {contra['explanation']}**
+
+- **Position A:** {contra['finding_1'][:150]}... {contra['citation_1']}
+- **Position B:** {contra['finding_2'][:150]}... {contra['citation_2']}""")
+
+    return "\n\n".join(sections)
+
+
+def _format_complementary(complementary: list) -> str:
+    """Format complementary findings section."""
+    if not complementary:
+        return "*No complementary findings identified.*"
+
+    sections = []
+    for i, comp in enumerate(complementary, 1):
+        sections.append(f"""**{i}. {comp['relationship']}**
+
+- {comp['citation_1']}
+- {comp['citation_2']}""")
+
+    return "\n\n".join(sections)
+
+
+def _format_trends(trends: list) -> str:
+    """Format trends section."""
+    if not trends:
+        return "*No clear trends identified.*"
+
+    return "\n".join([f"- {trend}" for trend in trends])
+
+
+def _format_gaps(gaps: list) -> str:
+    """Format research gaps section."""
+    if not gaps:
+        return "*No significant research gaps identified.*"
+
+    return "\n".join([f"- {gap}" for gap in gaps])
+
+
+def _format_references(documents: list) -> str:
+    """Format references section."""
+    successful_docs = [d for d in documents if d["extraction_status"] == "success"]
+
+    if not successful_docs:
+        return "*No references available.*"
+
+    refs = []
+    for i, doc in enumerate(successful_docs, 1):
+        authors = ", ".join(doc["authors"][:3])
+        if len(doc["authors"]) > 3:
+            authors += " et al."
+
+        refs.append(f"{i}. {authors} ({doc['year']}). *{doc['title']}*. arXiv:{doc['arxiv_id']}")
+
+    return "\n".join(refs)
+
+
+def _format_comparison(comparison: dict) -> str:
+    """
+    Format comparison table as markdown.
+
+    Args:
+        comparison: Comparison dict with metrics_table, metric_names, comparison_summary
+
+    Returns:
+        Markdown section with comparison table
+    """
+    if not comparison or not comparison.get("metrics_table"):
+        return ""
+
+    metrics_table = comparison["metrics_table"]
+    metric_names = comparison["metric_names"]
+    summary = comparison.get("comparison_summary", "")
+
+    # Build markdown table
+    # Header row
+    table_lines = ["## Quantitative Metrics Comparison\n"]
+
+    if summary:
+        table_lines.append(f"{summary}\n")
+
+    # Only create table if we have metrics
+    if not metric_names:
+        table_lines.append("*No quantitative metrics were extracted from the papers.*\n")
+        return "\n".join(table_lines) + "\n---\n"
+
+    # Create table header
+    headers = ["Paper"] + metric_names
+    table_lines.append("| " + " | ".join(headers) + " |")
+    table_lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+
+    # Create table rows
+    for row in metrics_table:
+        paper_name = row["paper"][:40] + "..." if len(row["paper"]) > 40 else row["paper"]
+        cells = [paper_name]
+
+        for metric in metric_names:
+            value = row.get(metric, "—")  # Em dash for missing values
+            cells.append(str(value))
+
+        table_lines.append("| " + " | ".join(cells) + " |")
+
+    table_lines.append("\n*Note: — indicates metric not reported in paper*\n")
+    table_lines.append("---\n")
+
+    return "\n".join(table_lines)
